@@ -1,0 +1,292 @@
+//Refe.mac
+//Copyright (C) 2006 taketori <taketori@x10d.jp>
+// http://www.x10d.jp
+//Refeを秀丸で。
+//lispを理解できてないところがあるけど、たぶんこんな感じだと思う。
+//業務連絡：search-forward -> searchdown;
+//注意:筆者のコーディングの手間を省くため、オリジナルのlispソースも含まれていますが、このソースはaraiさん<http://ns103.net/~arai/ruby/refe.el>によるものです。
+
+////History
+//2006-03-23  taketori  <taketori@x10d.jp>
+//	* RefeGetWordAtPoint: デバッグ文が残っていたのを削除。
+//
+//2005-03-22  taketori  <taketori@x10d.jp>
+//	* 初公開
+////
+
+///////ユーザー設定
+//
+//macrodll.dllの場所。
+//フルパスで記入する。例のように、\ は2回重ねる。また、行末の ; やダブルクォーテーション "" なども忘れずに。
+//$FortexDll = "C:\\hidemaru\\macrodll.dll";	//例
+$FortexDll = "C:\\ols\\hm\\macro\\fortex\\sub\\macrodll.dll";
+//
+///////設定終了
+
+
+//(defvar refe-program-name
+//  (if (featurep 'meadow)
+//      "ruby"
+//    "refe"))
+//$RefeProgramName = "bash.exe --login -c \"refe " ;
+$RefeProgramName = "ruby.exe" ;
+
+//(defvar refe-program-args
+//  (if (featurep 'meadow)
+//      '("-S" "refe")
+//    nil))
+$RefeProgramArgs = " -S refe ";
+
+//(defvar refe-buffer-name "*Refe*")
+$RefeBufferName = "$$Refe$$";
+
+//(defvar refe-completion-table nil)
+	//lispではmake-vectorして作られるのだけど、このマクロでは諸般の事情（速度とか補完するときの都合とか）でファイルを作ることにする。
+$RefeCompletionTable = macrodir + "\\RefeCompletionTable.tbl";
+
+////////////////////メイン関数、ここから。
+call Refe;
+endmacro;
+////////////////////メイン関数、ここまで。
+
+RefeCallProcess:
+//(defun refe-call-process (buf &rest args)
+
+	##buf = ##1;
+	$$args = $$2;
+//  (let ((coding-system-for-read 'euc-japan))
+	//TODO:秀丸ではあんまり関係ないような気がするが、一応実装してみる
+//    (apply 'call-process refe-program-name nil buf nil
+//           (append refe-program-args args))))		//配列refe-program-argsとargsを返す
+	setactivehidemaru ##buf;		//念のためおまじない
+	//insert " ";
+	selectall;
+	run $RefeProgramName + $RefeProgramArgs + $$args;
+
+return;
+
+RefeMakeCompletionTable:
+//(defun refe-make-completion-table ()
+	//この関数の挙動がオリジナルと大きく異なる理由は、上記を参照。
+
+//  (setq refe-completion-table (make-vector 547 0))
+//  (with-temp-buffer
+//    (refe-call-process t "*")
+//    (goto-char (point-min))
+//    (while (looking-at "\\([A-Z][A-Za-z_0-9:]*\\|man\\)[#.]\\([^ \n]*\\)")
+//      (intern (match-string 0) refe-completion-table)		//ヒットした全体
+//      (intern (match-string 1) refe-completion-table)		//1番目のかっこでくくられた文字列
+//      (intern (match-string 2) refe-completion-table)		//2番目のかっこでくくられた文字列
+//      (skip-chars-forward "^ \n")
+//      (skip-chars-forward " \n")))
+//  nil)
+	title "Refe.mac: Making Completion Table...";		//ちょっと時間がかかるので、その旨を表示。
+	##hmhandle = hidemaruhandle(0);					//元の窓のウィンドウハンドル
+	openfile "/n /h " + $RefeCompletionTable;
+	call RefeCallProcess hidemaruhandle(0), "-l \"*\" >con"; //+ $RefeCompletionTable;		//TODO:ちょっとオリジナルと挙動が違うので、修正する
+	##tablehandle = hidemaruhandle(0);		//$CompletionTableを作る窓のウィンドウハンドル
+	gofiletop;
+	replaceallfast "([A-Z][A-Za-z_0-9:]*|man)[#.]([^ \n]*)", "\\0\\n\\1\\n\\2", regular;
+	///////
+	//辞書の注意
+	//macrodll.dllのLISTBOX_CREATE関数は、ソートされず重複もある単語を改行もしくはコンマで分割したファイルを指定できる
+	//当然環境依存なので、ちょっと考察する
+	///////
+
+	save;
+
+	//Tableを作った秀丸バッファを、ほかの秀丸から閉じるときの常套手段
+	setactivehidemaru ##hmhandle;
+	closehidemaruforced ##tablehandle;
+
+	title 0;
+
+return 0;	//エラー処理はですね、優秀な秀丸がよしなに計らってくれると固く信じているので....だめ？
+
+RefeGetWordAtPoint:
+//(defun refe-get-word-at-point ()
+
+//TODO:ruby-modeにおける、単語構成文字と式前置演算子とは？
+//  (save-excursion		//カレントバッファのポイントとマークをセーブし、 forms を評価し、ポイントとマークをリストア
+//    (while (looking-at "\\sw\\|\\s_")		//カーソル（ポイント）直後が、単語構成文字""かシンボル構成文字"a-zA-Z0-9_"
+//      (forward-char 1))
+//    (if (or (re-search-backward "\\sw\\|\\s_"
+//				(save-excursion (beginning-of-line) (point))
+//				t)
+//	    (re-search-forward "\\(\\sw\\|\\s_\\)+"
+//			       (save-excursion (end-of-line) (point))
+//			       t))
+//	(progn (goto-char (match-end 0))		//progn=すべてをテキスト上の順に評価し, 最後のフォームの結果を返す
+//	       (buffer-substring (point)
+//				 (progn (forward-sexp -1)		//釣り合った式(括弧で区切られたもの, 単語や文字列定数など)を前方へ向けて飛び越えて移動
+//					(while (looking-at "\\s'")		//式前置演算子(ruby-modeではどういう文字が該当するかわからないので、とりあえず単語構成文字)
+//					  (forward-char 1))
+//					(point))))
+//      nil)))
+
+	//TODO:いちいちオリジナルをまねしなくてもいいと思うので、改良する。
+	##xorg = x;
+	##yorg = y;
+	##x = ##xorg;
+	##y = ##yorg;
+
+	//searchdown "[\\w0-9]", regular, nohilight;		//\\w = [a-zA-Z_]
+	searchdown2 "[a-zA-Z_0-9]", regular, nohilight;
+	while( result && foundtopx == ##x && foundtopy == ##y ){
+		right 1;
+		##x = x;
+		##y = y;
+		finddown2;	//searchdown2 "[\\w0-9]", regular, nohilight;
+	}
+	gosearchstarted;
+	golinetop2;
+	beginsel;
+	movetolineno xtocolumn( ##x, ##y )+1, ytolineno( ##x, ##y );
+
+	searchup2 "[a-zA-Z0-9_]", regular, nohilight, inselect;
+	if( !result ){
+		message "begin searchdown";
+		golineend2;
+		beginsel;
+		movetolineno xtocolumn( ##x, ##y ), ytolineno( ##x, ##y );
+		searchdown2 "[a-zA-Z0-9_]+", regular, nohilight, inselect;
+		if( !result ){
+			moveto ##xorg, ##yorg;
+			return;
+		}
+	}
+	//ここ以下はsearchupまたはsearchdownのどちらかが成功しているときに実行。
+	wordleft;		//forward-sexp -1 に該当するコマンドがないので、お茶を濁す。
+	$$gotword = gettext( foundendx, foundendy, x, y);
+
+//obsolete:あらかじめ調べたい範囲を選択しているとき（∵うまく単語として取得できたら、いちいち範囲選択する必要がない）
+//	if( selecting ){
+//		$$gotword = gettext(seltopx, seltopy, selendx, selendy);
+//	}else{
+//		escape;		//ボックス選択しているときは選択解除
+//
+//	}
+
+return $$gotword;
+
+Refe:
+
+//  (interactive)
+		//TODO:（バッファがないので）対話的に行えないが、それなりのUIを考える
+
+//  (if (null refe-completion-table)
+//      (refe-make-completion-table))
+	if( !existfile($RefeCompletionTable) ){
+		call RefeMakeCompletionTable;
+	}
+
+//  (let* ((default (refe-get-word-at-point))
+//	 (completion-ignore-case t)
+//	 (word (completing-read (if default
+//				    (format "Class or Method (default %s): " default)
+//				  "Class or Method: ")
+//				refe-completion-table nil nil nil nil default))
+//	 (buf (or (get-buffer refe-buffer-name)
+//		  (generate-new-buffer refe-buffer-name)))
+	call RefeGetWordAtPoint;
+
+	//NOTE:変数defaultの内容がオリジナルとは異なる。
+	//TODO:と思ったけど、いちいち変える必要もないっぽいので、オリジナルと同じにする。
+	if( strlen( $$return ) >= 1 ){
+		$$default = " (default " + $$return + ")";
+	}
+	call LoadFortexDll $RefeCompletionTable, "Class or Method" + $$default + ":", $$return;
+	$$word = $$return;
+
+	//##hmhandle = hidemaruhandle(0);		//元の窓のウィンドウハンドル。おまじない
+	if( findhidemaru( $RefeBufferName ) == -1 )
+		openfile $RefeBufferName;
+	##buf = hidemaruhandle( findhidemaru( $RefeBufferName ) );
+
+//    (set-buffer buf)
+	setactivehidemaru ##buf;
+
+//    (setq buffer-read-only nil)		//nil の場合リードオンリーではなく、そうでない場合リードオンリー
+	if( browsemode )	browsemodeswitch;	//それぞれ1のときそのモード
+	if( readonly )		readonlyswitch;		//解除するのもこの順番でないとだめ（？）。
+
+//    (erase-buffer)		//もとの内容を全消去
+	selectall;
+	//delete;		//obsolete:消さなくても後の動作に影響がないし、標準出力を取り込むためには選択したままの方がよい。
+//
+//    (refe-call-process buf word)
+	call RefeCallProcess ##buf, $$word + " >con";		//>conしないと、$RefeBufferNameバッファに表示されない
+//
+//    (goto-char (point-min))
+	movetolineno 1, 1;	//gofiletop;
+
+//    (if (re-search-forward "^\\(---\\|:\\|man\\.\\)" nil t)
+//	nil
+//      (let ((klass-table (make-vector 17 0))
+//	    (completion-ignore-case t)
+//	    klass)
+//	(goto-char (point-min))
+//	(while (looking-at "[A-Z][A-Za-z_0-9:]*[#.][^ \n]*")		//ポイントの直後と一致するか
+//	  (intern (match-string 0) klass-table)
+//	  (skip-chars-forward "^ \n")
+//	  (skip-chars-forward " \n"))
+//	(if (= (point) (point-min))
+//	    nil ; (message "no such class or method: %s" word)
+//	  (setq klass (completing-read "Class: "
+//				       klass-table nil nil nil nil nil))
+//	  (erase-buffer)
+//	  (refe-call-process buf klass word))))
+	//setactivehidemaru ##buf ;
+	searchdown "^(---|:|man\\.)", regular, nohilight;
+	if( !result ){
+		movetolineno 1, 1;	//gofiletop;
+		searchdown2 "[A-Z][A-Za-z_0-9:]*[#.][^ \n]*", regular, nohilight;
+		while( result ){
+			$$klass_table = $$klass_table + "," + gettext( foundtopx, foundtopy, foundendx, foundendy);
+			moveto foundendx, foundendy;
+			finddown;	//searchdown2 "[A-Z][A-Za-z_0-9:]*[#.][^ \n]*", regular, nohilight;
+		}
+
+		//TODO:messageから察するにこんな感じだと思うけど、ひょっとするとthenの内容にelseも含まれるかも。
+		if( foundendx == 0 && foundendy == 0 ){
+			message "no such class or method: " + $$word;		//messageだと、いちいち[OK]をクリックしないといけないのがいまいち。
+		}else{
+			call LoadFortexDll $$klass_table, "Class: ", "";
+			$$klass = $$return;
+
+			selectall;
+			//delete;		//obsolete:消さなくても後の動作に影響がないし、標準出力を取り込むためには選択したままの方がよい。
+			call RefeCallProcess ##buf, $$klass + " " + $$word + " >con";
+			//秀丸では、引数を任意の個数にできないので、呼び出し側で工夫した（ふつう、受け取る方であれこれするのかな？）
+		}
+	}
+
+
+//    (set-buffer-modified-p nil)
+//    (setq buffer-read-only t)
+//    (goto-char (point-min))
+//    (display-buffer buf)))
+	clearupdated;
+	readonlyswitch;
+	movetolineno 1, 1;		//gofiletopでもいいけど。何となく。
+	setactivehidemaru ##buf;
+
+	//provide 'refe		//TODO:あらかじめrefeの存在をチェックしよう。
+
+return;
+
+LoadFortexDll:
+//Arg: $$補完用の辞書ファイル, $$タイトル, $$default
+//Ret: EDIT_CREATEの返値と同じ
+
+	loaddll $FortexDll;
+	if( !result ){
+		message "sample.dllのロードに失敗しました。";
+		endmacro;
+	}
+	$$got_word = dllfuncstr( "EDIT_CREATE", hidemaruhandle(0), $$1, $$2 );
+	freedll;
+
+	if( $$got_word == "" )	$$got_word = $$3;
+
+return $$got_word;
